@@ -80,6 +80,8 @@
 
     <!-- ツールバー -->
     <div class="bg-white border-b border-gray-200 p-2 flex flex-wrap gap-3 items-center shrink-0 text-sm">
+        
+        <!-- レイアウト -->
         <div class="flex items-center border-r pr-3 gap-2">
             <span class="text-gray-500 text-xs font-bold uppercase">レイアウト</span>
             <select id="layout-select" onchange="changeLayout()" class="border border-gray-300 rounded p-1">
@@ -87,8 +89,10 @@
                 <option value="a4">A4印刷用</option>
             </select>
         </div>
+
+        <!-- サイズ -->
         <div class="flex items-center border-r pr-3 gap-2">
-            <span class="text-gray-500 text-xs font-bold uppercase">サイズ</span>
+            <span class="text-gray-500 text-xs font-bold uppercase">基本サイズ</span>
             <div class="flex items-center">
                 <input type="number" id="base-font-size" value="12" min="6" max="72" class="w-14 border border-gray-300 rounded p-1 text-center" onchange="updateBaseFontSize()">
                 <span class="ml-1 text-gray-600 text-xs">pt</span>
@@ -98,12 +102,25 @@
                 </div>
             </div>
         </div>
+
+        <!-- 装飾ボタン群 -->
         <div class="flex items-center border-r pr-3 gap-1">
+            <!-- フォント選択 -->
+            <select id="font-family-select" onchange="wrapFontFamily(this.value); this.value='';" class="border border-gray-300 rounded p-1 w-24 mr-1 text-xs" title="選択部分のフォント変更">
+                <option value="" disabled selected>フォント</option>
+                <option value="">デフォルト(UD)</option>
+                <option value="'UD Digi Kyokasho', 'YuKyokasho', 'Kaisho', serif">教科書体</option>
+                <option value="'HiraMinProN-W3', 'YuMincho', 'MS PMincho', serif">明朝体</option>
+                <option value="'Hiragino Kaku Gothic ProN', 'YuGothic', 'MS PGothic', sans-serif">ゴシック</option>
+                <option value="'Hiragino Maru Gothic ProN', 'HGMaruGothicMPRO', 'Rounded Mplus 1c', sans-serif">丸ゴシック</option>
+            </select>
+
             <button onclick="wrapSelection('b')" class="p-1.5 hover:bg-gray-100 rounded" title="太字"><i class="fas fa-bold"></i></button>
             <button onclick="wrapSelection('u')" class="p-1.5 hover:bg-gray-100 rounded" title="下線"><i class="fas fa-underline"></i></button>
             <button onclick="wrapColor('red')" class="p-1.5 hover:bg-gray-100 rounded text-red-500" title="赤文字"><i class="fas fa-font"></i></button>
             <button onclick="wrapFontSize()" class="p-1.5 hover:bg-gray-100 rounded" title="部分サイズ変更"><i class="fas fa-text-height"></i></button>
         </div>
+
         <div class="flex items-center gap-2 ml-auto">
             <a href="https://gemini.google.com/gem/1aQXlT177ks4j2LLC5ooZCyZV3xKGBIlx?usp=sharing" target="_blank" class="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1 rounded hover:bg-indigo-100 transition flex items-center shadow-sm">
                 <i class="fas fa-external-link-alt mr-2"></i> ルビを付けるGemを開く
@@ -117,7 +134,7 @@
         <div class="w-1/2 flex flex-col border-r border-gray-300 bg-gray-50">
             <div class="p-2 bg-gray-100 border-b text-xs font-bold text-gray-500 flex justify-between">
                 <span>HTMLソース入力</span>
-                <span class="text-gray-400">ここに貼り付け</span>
+                <span class="text-gray-400">Geminiで作ったコードを貼り付け</span>
             </div>
             <textarea id="html-editor" 
                 class="flex-1 w-full p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 text-gray-800 text-sm leading-relaxed font-mono"
@@ -127,9 +144,10 @@
         <!-- プレビュー -->
         <div class="w-1/2 flex flex-col bg-gray-200 overflow-y-auto" id="preview-scroller">
             <div class="p-2 sticky top-0 bg-gray-200/90 backdrop-blur z-10 text-xs font-bold text-gray-500 border-b border-gray-300 flex justify-between">
-                <span>プレビュー (クリックで修正)</span>
+                <span>プレビュー (クリックでルビ修正 / 選択してボタンで装飾)</span>
             </div>
             <div class="flex justify-center p-4 min-h-full">
+                <!-- プレビュー本体 -->
                 <div id="preview-container" class="page-hp preview-content"></div>
             </div>
         </div>
@@ -180,7 +198,6 @@
 
         function updatePreview() {
             const rawText = editor.value;
-            // 改行は <br> に変換（HTMLタグはそのまま）
             const htmlContent = rawText.replace(/\n/g, '<br>');
             preview.innerHTML = htmlContent;
             attachRubyClickEvents();
@@ -201,13 +218,60 @@
             preview.className = `preview-content ${type === 'a4' ? 'page-a4' : 'page-hp'}`;
         }
 
-        function wrapSelection(tag) { insertTag(`<${tag}>`, `</${tag}>`); }
-        function wrapColor(color) { insertTag(`<span style="color:${color}">`, `</span>`); }
-        function wrapFontSize() {
-            const size = prompt("サイズ (例: 20pt)", "20pt");
-            if(size) insertTag(`<span style="font-size:${size}">`, `</span>`);
+        // --- 装飾機能 (プレビュー選択対応版) ---
+
+        // 選択範囲がエディタかプレビューかを判定し、タグを適用する
+        function applyStyleToSelection(startTag, endTag) {
+            const selection = window.getSelection();
+            
+            // プレビュー側が選択されている場合
+            if (selection.rangeCount > 0 && preview.contains(selection.anchorNode)) {
+                applyStyleToPreview(startTag, endTag, selection);
+            } 
+            // それ以外（エディタ側）の場合
+            else {
+                insertTagToEditor(startTag, endTag);
+            }
         }
-        function insertTag(startTag, endTag) {
+
+        // プレビューの選択範囲にスタイルを適用して、ソースに反映させる
+        function applyStyleToPreview(startTag, endTag, selection) {
+            if (selection.isCollapsed) return;
+
+            // 簡易的な実装: HTMLタグを解析せず、選択範囲をspanで囲む
+            // 注意: 複雑なネストやルビを跨ぐ選択だとうまくいかない場合がありますが、
+            // このツールとしては「部分的な文字装飾」が主目的なので許容します。
+            
+            const range = selection.getRangeAt(0);
+            
+            // 新しい要素を作成（タグの中身を解析してstyle属性などを作る）
+            // ここでは簡易的に、startTagが <span style="..."> 前提で処理
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = startTag + 'dummy' + endTag;
+            const wrapper = tempDiv.firstElementChild; // 作成されたタグ (例: span)
+            
+            if (wrapper) {
+                // 選択範囲を抽出してラップする
+                try {
+                    // Rangeの内容をラップする
+                    const content = range.extractContents();
+                    wrapper.innerHTML = ""; // dummyを消す
+                    wrapper.appendChild(content);
+                    range.insertNode(wrapper);
+                    
+                    // 変更されたプレビューのHTMLをエディタに書き戻す
+                    syncPreviewToEditor();
+                    
+                    // 選択解除
+                    selection.removeAllRanges();
+                } catch (e) {
+                    console.error("Selection wrap failed:", e);
+                    alert("その選択範囲には適用できません（タグを跨いでいる可能性があります）");
+                }
+            }
+        }
+
+        function insertTagToEditor(startTag, endTag) {
             const start = editor.selectionStart;
             const end = editor.selectionEnd;
             const text = editor.value;
@@ -218,6 +282,27 @@
             updatePreview();
         }
 
+        // --- 各装飾ボタンの呼び出し ---
+        function wrapSelection(tag) { 
+            applyStyleToSelection(`<${tag}>`, `</${tag}>`); 
+        }
+        function wrapColor(color) { 
+            applyStyleToSelection(`<span style="color:${color}">`, `</span>`); 
+        }
+        function wrapFontSize() {
+            const size = prompt("サイズ (例: 20pt, 1.5em)", "20pt");
+            if(size) applyStyleToSelection(`<span style="font-size:${size}">`, `</span>`);
+        }
+        function wrapFontFamily(font) {
+            if(!font) return; // デフォルト選択時は何もしない（あるいはstyle削除ロジックが必要だが簡易的に追加のみ）
+            // デフォルトに戻す場合(valueが空文字)は、span style="font-family..." を削除するのが理想だが、
+            // 簡易的に「デフォルトの場合はタグをつけない」挙動にする
+            if (font === "") return;
+            applyStyleToSelection(`<span style="font-family:${font}">`, `</span>`);
+        }
+
+
+        // --- ルビ機能 ---
         function attachRubyClickEvents() {
             preview.querySelectorAll('ruby').forEach(ruby => {
                 ruby.onclick = (e) => { e.stopPropagation(); openRubyModal(ruby); };
@@ -287,7 +372,11 @@
         }
 
         function syncPreviewToEditor() {
-            editor.value = preview.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+            // プレビューのDOMからHTMLを取得し、改行コードを復元してエディタに戻す
+            let html = preview.innerHTML;
+            // <br>を改行コードに置換
+            html = html.replace(/<br\s*\/?>/gi, '\n');
+            editor.value = html;
         }
 
         function copyHtml() {

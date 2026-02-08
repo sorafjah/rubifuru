@@ -90,15 +90,15 @@
             </select>
         </div>
 
-        <!-- サイズ -->
+        <!-- 基本サイズ -->
         <div class="flex items-center border-r pr-3 gap-2">
-            <span class="text-gray-500 text-xs font-bold uppercase">基本サイズ</span>
+            <span class="text-gray-500 text-xs font-bold uppercase">全体サイズ</span>
             <div class="flex items-center">
                 <input type="number" id="base-font-size" value="12" min="6" max="72" class="w-14 border border-gray-300 rounded p-1 text-center" onchange="updateBaseFontSize()">
                 <span class="ml-1 text-gray-600 text-xs">pt</span>
                 <div class="flex flex-col ml-1 gap-0.5">
-                    <button onclick="stepFontSize(1)" class="bg-gray-200 hover:bg-gray-300 px-1 rounded text-[10px] leading-none">▲</button>
-                    <button onclick="stepFontSize(-1)" class="bg-gray-200 hover:bg-gray-300 px-1 rounded text-[10px] leading-none">▼</button>
+                    <button onmousedown="event.preventDefault()" onclick="stepFontSize(1)" class="bg-gray-200 hover:bg-gray-300 px-1 rounded text-[10px] leading-none">▲</button>
+                    <button onmousedown="event.preventDefault()" onclick="stepFontSize(-1)" class="bg-gray-200 hover:bg-gray-300 px-1 rounded text-[10px] leading-none">▼</button>
                 </div>
             </div>
         </div>
@@ -115,10 +115,21 @@
                 <option value="'Hiragino Maru Gothic ProN', 'HGMaruGothicMPRO', 'Rounded Mplus 1c', sans-serif">丸ゴシック</option>
             </select>
 
-            <button onclick="wrapSelection('b')" class="p-1.5 hover:bg-gray-100 rounded" title="太字"><i class="fas fa-bold"></i></button>
-            <button onclick="wrapSelection('u')" class="p-1.5 hover:bg-gray-100 rounded" title="下線"><i class="fas fa-underline"></i></button>
-            <button onclick="wrapColor('red')" class="p-1.5 hover:bg-gray-100 rounded text-red-500" title="赤文字"><i class="fas fa-font"></i></button>
-            <button onclick="wrapFontSize()" class="p-1.5 hover:bg-gray-100 rounded" title="部分サイズ変更"><i class="fas fa-text-height"></i></button>
+            <button onmousedown="event.preventDefault()" onclick="wrapSelection('b')" class="p-1.5 hover:bg-gray-100 rounded" title="太字"><i class="fas fa-bold"></i></button>
+            <button onmousedown="event.preventDefault()" onclick="wrapSelection('u')" class="p-1.5 hover:bg-gray-100 rounded" title="下線"><i class="fas fa-underline"></i></button>
+            <button onmousedown="event.preventDefault()" onclick="wrapColor('red')" class="p-1.5 hover:bg-gray-100 rounded text-red-500" title="赤文字"><i class="fas fa-font"></i></button>
+        </div>
+
+        <!-- 選択部分のサイズ変更（1pt刻み） -->
+        <div class="flex items-center border border-gray-300 rounded px-1 ml-1 bg-gray-50" id="partial-fontsize-box">
+            <span class="text-[10px] text-gray-500 mr-1 font-bold">選択文字</span>
+            <input type="number" id="sel-font-size" value="16" class="w-10 p-0.5 text-center text-xs border-none bg-transparent focus:ring-0 outline-none" title="サイズを入力してEnter">
+            <span class="text-[10px] text-gray-500 mr-1">pt</span>
+            <div class="flex flex-col border-l border-gray-300 pl-1">
+                <button onmousedown="event.preventDefault()" onclick="applyPartialFontSizeStep(1)" class="text-[8px] leading-none hover:text-blue-500 hover:bg-blue-50 w-4 h-3 rounded-sm flex items-center justify-center">▲</button>
+                <button onmousedown="event.preventDefault()" onclick="applyPartialFontSizeStep(-1)" class="text-[8px] leading-none hover:text-blue-500 hover:bg-blue-50 w-4 h-3 rounded-sm flex items-center justify-center">▼</button>
+            </div>
+            <button onmousedown="event.preventDefault()" onclick="applyPartialFontSize()" class="ml-1 text-xs text-gray-600 hover:text-blue-500 px-1" title="適用"><i class="fas fa-check"></i></button>
         </div>
 
         <div class="flex items-center gap-2 ml-auto">
@@ -189,11 +200,40 @@
         const editor = document.getElementById('html-editor');
         const preview = document.getElementById('preview-container');
         const baseFontSizeInput = document.getElementById('base-font-size');
+        const selFontSizeInput = document.getElementById('sel-font-size');
+        const partialFontsizeBox = document.getElementById('partial-fontsize-box');
+        
         let currentTargetRuby = null;
+        let lastRange = null; // プレビュー内の最後の選択範囲（cloneRangeで保持）
 
         window.addEventListener('DOMContentLoaded', () => {
             updateBaseFontSize();
             updatePreview();
+        });
+
+        // ✅ ツールバーで操作しても「選択範囲」を落とさないためのヘルパー
+        function capturePreviewSelectionRange() {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+            const r = sel.getRangeAt(0);
+            if (!r.collapsed && preview.contains(r.commonAncestorContainer)) {
+                lastRange = r.cloneRange();
+            }
+        }
+
+        // 選択範囲の監視（プレビュー内の選択を記憶する）
+        document.addEventListener('selectionchange', () => {
+            // input/textareaにフォーカス中は、選択が意図せず変わりやすいので
+            // 「プレビュー内の選択」だけを安全に記憶する
+            capturePreviewSelectionRange();
+        });
+
+        // ✅ 数字入力欄を触る直前に、プレビューの選択を確定保存
+        //（クリックでフォーカス移動して選択が消える前に保存）
+        ['pointerdown', 'mousedown', 'touchstart'].forEach(evt => {
+            selFontSizeInput.addEventListener(evt, () => {
+                capturePreviewSelectionRange();
+            }, { passive: true });
         });
 
         function updatePreview() {
@@ -218,55 +258,53 @@
             preview.className = `preview-content ${type === 'a4' ? 'page-a4' : 'page-hp'}`;
         }
 
-        // --- 装飾機能 (プレビュー選択対応版) ---
+        // --- 装飾機能 ---
 
-        // 選択範囲がエディタかプレビューかを判定し、タグを適用する
         function applyStyleToSelection(startTag, endTag) {
             const selection = window.getSelection();
             
-            // プレビュー側が選択されている場合
+            // 1. 現在プレビューが選択されている場合
             if (selection.rangeCount > 0 && preview.contains(selection.anchorNode)) {
-                applyStyleToPreview(startTag, endTag, selection);
+                applyStyleToPreview(startTag, endTag, selection.getRangeAt(0));
             } 
-            // それ以外（エディタ側）の場合
+            // 2. フォーカスが外れても、直前の選択がある場合（ここが重要）
+            else if (lastRange && preview.contains(lastRange.commonAncestorContainer)) {
+                applyStyleToPreview(startTag, endTag, lastRange);
+            }
+            // 3. エディタ側での操作
             else {
                 insertTagToEditor(startTag, endTag);
             }
         }
 
-        // プレビューの選択範囲にスタイルを適用して、ソースに反映させる
-        function applyStyleToPreview(startTag, endTag, selection) {
-            if (selection.isCollapsed) return;
+        function applyStyleToPreview(startTag, endTag, range) {
+            if (!range || range.collapsed) return;
 
-            // 簡易的な実装: HTMLタグを解析せず、選択範囲をspanで囲む
-            // 注意: 複雑なネストやルビを跨ぐ選択だとうまくいかない場合がありますが、
-            // このツールとしては「部分的な文字装飾」が主目的なので許容します。
-            
-            const range = selection.getRangeAt(0);
-            
-            // 新しい要素を作成（タグの中身を解析してstyle属性などを作る）
-            // ここでは簡易的に、startTagが <span style="..."> 前提で処理
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = startTag + 'dummy' + endTag;
-            const wrapper = tempDiv.firstElementChild; // 作成されたタグ (例: span)
+            const wrapper = tempDiv.firstElementChild; 
             
             if (wrapper) {
-                // 選択範囲を抽出してラップする
                 try {
-                    // Rangeの内容をラップする
-                    const content = range.extractContents();
-                    wrapper.innerHTML = ""; // dummyを消す
+                    // ※ rangeはcloneRangeで保存してるので、DOM変更前に必ず新しいRangeを作る
+                    const liveRange = range.cloneRange();
+                    const content = liveRange.extractContents();
+                    wrapper.innerHTML = ""; 
                     wrapper.appendChild(content);
-                    range.insertNode(wrapper);
-                    
-                    // 変更されたプレビューのHTMLをエディタに書き戻す
+                    liveRange.insertNode(wrapper);
                     syncPreviewToEditor();
                     
-                    // 選択解除
-                    selection.removeAllRanges();
+                    // 変更後も選択状態を維持（新しい要素を再選択）
+                    const newRange = document.createRange();
+                    newRange.selectNodeContents(wrapper);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(newRange);
+                    lastRange = newRange.cloneRange();
+
                 } catch (e) {
                     console.error("Selection wrap failed:", e);
-                    alert("その選択範囲には適用できません（タグを跨いでいる可能性があります）");
+                    alert("その選択範囲には適用できませんでした（タグ構造が複雑な可能性があります）");
                 }
             }
         }
@@ -282,25 +320,37 @@
             updatePreview();
         }
 
-        // --- 各装飾ボタンの呼び出し ---
+        // --- 各装飾ボタン ---
         function wrapSelection(tag) { 
             applyStyleToSelection(`<${tag}>`, `</${tag}>`); 
         }
         function wrapColor(color) { 
-            applyStyleToSelection(`<span style="color:${color}">`, `</span>`); 
-        }
-        function wrapFontSize() {
-            const size = prompt("サイズ (例: 20pt, 1.5em)", "20pt");
-            if(size) applyStyleToSelection(`<span style="font-size:${size}">`, `</span>`);
+            applyStyleToSelection(`<span style=\"color:${color}\">`, `</span>`); 
         }
         function wrapFontFamily(font) {
-            if(!font) return; // デフォルト選択時は何もしない（あるいはstyle削除ロジックが必要だが簡易的に追加のみ）
-            // デフォルトに戻す場合(valueが空文字)は、span style="font-family..." を削除するのが理想だが、
-            // 簡易的に「デフォルトの場合はタグをつけない」挙動にする
             if (font === "") return;
-            applyStyleToSelection(`<span style="font-family:${font}">`, `</span>`);
+            applyStyleToSelection(`<span style=\"font-family:${font}\">`, `</span>`);
         }
 
+        // --- 部分フォントサイズ変更ロジック ---
+        // ✅ 変更点：入力中に勝手に適用しない（Enter または ✓ボタンで適用）
+        function applyPartialFontSize() {
+            const size = parseInt(selFontSizeInput.value);
+            if (!size || size < 6) return;
+
+            // 入力欄を触って選択が消えていても lastRange で適用できる
+            applyStyleToSelection(`<span style=\"font-size:${size}pt\">`, `</span>`);
+        }
+
+        function applyPartialFontSizeStep(amount) {
+            // まず現在の選択を確定保存
+            capturePreviewSelectionRange();
+
+            let current = parseInt(selFontSizeInput.value) || 16;
+            let next = Math.max(6, current + amount);
+            selFontSizeInput.value = next;
+            applyPartialFontSize();
+        }
 
         // --- ルビ機能 ---
         function attachRubyClickEvents() {
@@ -372,9 +422,7 @@
         }
 
         function syncPreviewToEditor() {
-            // プレビューのDOMからHTMLを取得し、改行コードを復元してエディタに戻す
             let html = preview.innerHTML;
-            // <br>を改行コードに置換
             html = html.replace(/<br\s*\/?>/gi, '\n');
             editor.value = html;
         }
@@ -387,6 +435,21 @@
         modalRuby.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); navigateRuby(1); }
         });
+        
+        // ✅ InputでEnterキーを押したときだけ適用
+        selFontSizeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { 
+                e.preventDefault();
+                // Enter直前に選択を確定保存
+                capturePreviewSelectionRange();
+                applyPartialFontSize();
+            }
+        });
+
+        // ✅ ここが「止まったり」「選択解除されたり」の主因になりやすいので削除
+        // selFontSizeInput.addEventListener('change', () => {
+        //     applyPartialFontSize();
+        // });
     </script>
 </body>
 </html>
